@@ -94,8 +94,7 @@ def process_files_api():
             os.remove(file_path)    
 
     if extracted_text:
-        summary = summarize_text(extracted_text)
-        return jsonify({"summary": summary})
+        return jsonify({"text": extracted_text})
     else:
         return jsonify({"error": "No text extracted from the provided files."})
 
@@ -111,14 +110,13 @@ def summarize_youtube_api():
     try:
         audio_file = download_youtube_audio(url)
         transcript = transcribe_audio(audio_file)
-        summary = summarize_text(transcript)
     except Exception as e:
         return jsonify({"error": f"Failed to summarize YouTube video: {str(e)}"}), 500
     finally:
         if os.path.exists(audio_file):
             os.remove(audio_file)
             
-    return jsonify({"transcript": transcript, "summary": summary})
+    return jsonify({"transcript": transcript})
 
 @app.route('/transcribe_audio', methods=['POST'])
 def transcribe_audio_api():
@@ -132,14 +130,27 @@ def transcribe_audio_api():
     
     try:
         transcript = transcribe_audio(audio_path)
-        summary = summarize_text(transcript)
     except Exception as e:
         return jsonify({"error": f"Failed to transcribe audio: {str(e)}"}), 500
     finally:
         if os.path.exists(audio_path):
             os.remove(audio_path)
             
-    return jsonify({"transcript": transcript, "summary": summary})
+    return jsonify({"transcript": transcript})
+
+@app.route('/summarize',methods=['POST'])
+def summarize_api():
+    """Summarize the text."""
+    text= request.json.get("content")
+    if not text:
+        return jsonify({"error": "No content provided"}), 400
+
+    try:
+        summarize = summarize_text(text)
+    except Exception as e:
+        return jsonify({"error": f"Failed to summarize: {str(e)}"}), 500
+
+    return jsonify({"summary":summarize})
 
 if __name__ == '__main__':
     app.run(debug=True)
