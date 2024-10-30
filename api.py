@@ -15,7 +15,7 @@ import os
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Define the path for temporary files
 TEMP_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "temp")
