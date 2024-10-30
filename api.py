@@ -190,20 +190,22 @@ def transcribe_audio_api():
             
     return jsonify({"transcript": transcript})
 
-@app.route('/summarize',methods=['POST', 'OPTIONS'])
+from flask import make_response
+
+@app.route('/summarize', methods=['POST'])
 def summarize_api():
-    """Summarize the text."""
-    if request.method == "OPTIONS":  # Handle the CORS preflight request
-        return build_cors_preflight_response()
-    
-    text= request.json.get("content")
+    text = request.json.get("content")
     if not text:
         return jsonify({"error": "No content provided"}), 400
     try:
-        summarize = summarize_text(text)
+        summary = summarize_text(text)
+        response = make_response(jsonify({"summary": summary}))
+        response.headers["Access-Control-Allow-Origin"] = request.headers.get("Origin")
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
     except Exception as e:
         return jsonify({"error": f"Failed to summarize: {str(e)}"}), 500
-    return jsonify({"summary":summarize})
 
 @app.route('/generate_quiz', methods=['POST', 'OPTIONS'])
 def generate_quiz_api():
