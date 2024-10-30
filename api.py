@@ -10,7 +10,7 @@ import re
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 from nltk.tag import pos_tag
-from random import choice, sample
+from random import choice, sample, shuffle
 import os
 from flask_cors import CORS
 
@@ -72,6 +72,57 @@ def transcribe_audio(audio_file):
     model = whisper.load_model("base")
     result = model.transcribe(audio_file)
     return result['text']
+
+def extract_nouns_verbs(sentence):
+    """Extracts contextually important nouns and verbs from a sentence using POS tagging."""
+    words = word_tokenize(sentence)
+    pos_tags = pos_tag(words)
+
+    # Define a set of stop words and irrelevant tags
+    stop_words = set(stopwords.words("english"))
+    keyword_tags = {"NN", "NNS", "NNP", "VB", "VBP", "VBZ", "VBD", "VBG", "VBN"}
+    
+    # Extract only meaningful nouns and verbs
+    keywords = [word for word, pos in pos_tags if pos in keyword_tags and word.lower() not in stop_words]
+    return keywords
+
+def generate_question(sentence):
+    """Generates a meaningful question by replacing a specific keyword in the sentence with a blank."""
+    keywords = extract_nouns_verbs(sentence)
+    
+    if not keywords:
+        return None, None  # Skip if no meaningful keyword is found
+    
+    # Select a contextually significant keyword
+    for keyword in keywords:
+        if len(keyword) > 3:  # Avoid trivial short words as blanks
+            question = sentence.replace(keyword, '______', 1)
+            if question.endswith('.'):
+                question = question[:-1] + '?'  # Ensure it ends with a question mark
+            return question, keyword
+    
+    return None, None  # If no suitable keyword, return None
+
+def is_metadata(sentence):
+    """Determines if a sentence contains metadata, URLs, or other irrelevant information."""
+    metadata_keywords = ["ISSN", "DOI", "email", "Corresponding Author", "@", "|", "Available from:", "http", "https", "www", "dx.doi.org"]
+    return any(keyword in sentence for keyword in metadata_keywords)
+
+def generate_quiz(text):
+    """Generates a quiz from the given text, skipping metadata and focusing on contextually meaningful sentences."""
+    sentences = sent_tokenize(text)  # Tokenize text into sentences
+    questions_and_answers = []
+    
+    for sentence in sentences:
+        # Skip metadata sentences
+        if is_metadata(sentence):
+            continue
+
+        question, answer = generate_question(sentence)
+        if question:
+            questions_and_answers.append((question, answer))
+    
+    return questions_and_answers
 
 # Routes
 @app.route('/process_files', methods=['POST'])
@@ -153,6 +204,24 @@ def summarize_api():
         return jsonify({"error": f"Failed to summarize: {str(e)}"}), 500
 
     return jsonify({"summary":summarize})
+
+@app.route('/generate_quiz', methods=['POST'])
+def generate_quiz_api():
+    """Generates a quiz with meaningful questions from the provided text, with questions shuffled."""
+    data = request.get_json()
+    text = data.get("text")
+    
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+
+    try:
+        quiz = generate_quiz(text)
+        shuffle(quiz)  # Shuffle the order of the questions
+        limited_quiz = quiz[:10]  # Limit to 10 questions after shuffling
+        questions = [{"question": q, "answer": a} for q, a in limited_quiz]
+        return jsonify({"quiz": questions})
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate quiz: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
