@@ -15,9 +15,8 @@ import os
 from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": ["https://docu-insight-frontend.vercel.app", "http://localhost:5173"]}})
 
-# Set CORS to only allow your specific frontend URL
-CORS(app, resources={r"/*": {"origins": "https://docu-insight-frontend.vercel.app"}})
 
 # Define the path for temporary files
 TEMP_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "temp")
@@ -74,6 +73,35 @@ def transcribe_audio(audio_file):
     model = whisper.load_model("base")
     result = model.transcribe(audio_file)
     return result['text']
+
+def extract_nouns_verbs(sentence):
+    """Extracts contextually important nouns and verbs from a sentence using POS tagging."""
+    words = word_tokenize(sentence)
+    pos_tags = pos_tag(words)
+    # Define a set of stop words and irrelevant tags
+    stop_words = set(stopwords.words("english"))
+    keyword_tags = {"NN", "NNS", "NNP", "VB", "VBP", "VBZ", "VBD", "VBG", "VBN"}
+    
+    # Extract only meaningful nouns and verbs
+    keywords = [word for word, pos in pos_tags if pos in keyword_tags and word.lower() not in stop_words]
+    return keywords
+
+def generate_question(sentence):
+    """Generates a meaningful question by replacing a specific keyword in the sentence with a blank."""
+    keywords = extract_nouns_verbs(sentence)
+    
+    if not keywords:
+        return None, None  # Skip if no meaningful keyword is found
+    
+    # Select a contextually significant keyword
+    for keyword in keywords:
+        if len(keyword) > 3:  # Avoid trivial short words as blanks
+            question = sentence.replace(keyword, '______', 1)
+            if question.endswith('.'):
+                question = question[:-1] + '?'  # Ensure it ends with a question mark
+            return question, keyword
+    
+    return None, None
 
 def generate_quiz(text):
     """Generates a quiz from the given text, skipping metadata and focusing on contextually meaningful sentences."""
@@ -177,13 +205,36 @@ def summarize_api():
         return jsonify({"error": f"Failed to summarize: {str(e)}"}), 500
     return jsonify({"summary":summarize})
 
+@app.route('/generate_quiz', methods=['POST', 'OPTIONS'])
+def generate_quiz_api():
+    """Generates a quiz with meaningful questions from the provided text, with questions shuffled."""
+    if request.method == "OPTIONS":  # Handle the CORS preflight request
+        return build_cors_preflight_response()
+    data = request.get_json()
+    text = data.get("text")
+    
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+    try:
+        quiz = generate_quiz(text)
+        shuffle(quiz)  # Shuffle the order of the questions
+        limited_quiz = quiz[:10]  # Limit to 10 questions after shuffling
+        questions = [{"question": q, "answer": a} for q, a in limited_quiz]
+        return jsonify({"quiz": questions})
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate quiz: {str(e)}"}), 500
+
 # Helper function for handling CORS
 def build_cors_preflight_response():
-    response = jsonify()
-    response.headers["Access-Control-Allow-Origin"] = "https://docu-insight-frontend.vercel.app"
-    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    return response
+    origin = request.headers.get("Origin")
+    if origin in ["https://docu-insight-frontend.vercel.app", "http://localhost:5173"]:
+        response = jsonify()
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response, 200
+    else:
+        return jsonify({"error": "CORS not allowed"}), 403
 
 if __name__ == '__main__':
     app.run(debug=True)
