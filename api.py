@@ -12,8 +12,10 @@ from nltk.corpus import stopwords
 from nltk.tag import pos_tag
 from random import choice, sample
 import os
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # Define the path for temporary files
 TEMP_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "temp")
