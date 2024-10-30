@@ -162,6 +162,21 @@ def transcribe_audio_api():
             
     return jsonify({"transcript": transcript})
 
+@app.route('/summarize',methods=['POST', 'OPTIONS'])
+def summarize_api():
+    """Summarize the text."""
+    if request.method == "OPTIONS":  # Handle the CORS preflight request
+        return build_cors_preflight_response()
+    
+    text= request.json.get("content")
+    if not text:
+        return jsonify({"error": "No content provided"}), 400
+    try:
+        summarize = summarize_text(text)
+    except Exception as e:
+        return jsonify({"error": f"Failed to summarize: {str(e)}"}), 500
+    return jsonify({"summary":summarize})
+
 # Helper function for handling CORS
 def build_cors_preflight_response():
     response = jsonify()
