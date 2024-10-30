@@ -10,12 +10,14 @@ import re
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 from nltk.tag import pos_tag
-from random import choice, sample, shuffle
+from random import shuffle
 import os
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+
+# Set CORS to only allow your specific frontend URL
+CORS(app, resources={r"/*": {"origins": "https://docu-insight-frontend.vercel.app"}})
 
 # Define the path for temporary files
 TEMP_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "temp")
@@ -73,66 +75,29 @@ def transcribe_audio(audio_file):
     result = model.transcribe(audio_file)
     return result['text']
 
-def extract_nouns_verbs(sentence):
-    """Extracts contextually important nouns and verbs from a sentence using POS tagging."""
-    words = word_tokenize(sentence)
-    pos_tags = pos_tag(words)
-
-    # Define a set of stop words and irrelevant tags
-    stop_words = set(stopwords.words("english"))
-    keyword_tags = {"NN", "NNS", "NNP", "VB", "VBP", "VBZ", "VBD", "VBG", "VBN"}
-    
-    # Extract only meaningful nouns and verbs
-    keywords = [word for word, pos in pos_tags if pos in keyword_tags and word.lower() not in stop_words]
-    return keywords
-
-def generate_question(sentence):
-    """Generates a meaningful question by replacing a specific keyword in the sentence with a blank."""
-    keywords = extract_nouns_verbs(sentence)
-    
-    if not keywords:
-        return None, None  # Skip if no meaningful keyword is found
-    
-    # Select a contextually significant keyword
-    for keyword in keywords:
-        if len(keyword) > 3:  # Avoid trivial short words as blanks
-            question = sentence.replace(keyword, '______', 1)
-            if question.endswith('.'):
-                question = question[:-1] + '?'  # Ensure it ends with a question mark
-            return question, keyword
-    
-    return None, None  # If no suitable keyword, return None
-
-def is_metadata(sentence):
-    """Determines if a sentence contains metadata, URLs, or other irrelevant information."""
-    metadata_keywords = ["ISSN", "DOI", "email", "Corresponding Author", "@", "|", "Available from:", "http", "https", "www", "dx.doi.org"]
-    return any(keyword in sentence for keyword in metadata_keywords)
-
 def generate_quiz(text):
     """Generates a quiz from the given text, skipping metadata and focusing on contextually meaningful sentences."""
-    sentences = sent_tokenize(text)  # Tokenize text into sentences
+    sentences = sent_tokenize(text)
     questions_and_answers = []
-    
-    for sentence in sentences:
-        # Skip metadata sentences
-        if is_metadata(sentence):
-            continue
 
+    for sentence in sentences:
         question, answer = generate_question(sentence)
         if question:
             questions_and_answers.append((question, answer))
-    
+
     return questions_and_answers
 
-# Routes
-@app.route('/process_files', methods=['POST'])
+# Route Definitions
+@app.route('/process_files', methods=['POST', 'OPTIONS'])
 def process_files_api():
     """Processes uploaded files (PDF or images) and returns extracted text and summary."""
+    if request.method == "OPTIONS":  # Handle the CORS preflight request
+        return build_cors_preflight_response()
+
     files = request.files.getlist("files")
     extracted_text = ""
-    
+
     for file in files:
-        # Save file temporarily in TEMP_DIR
         file_path = os.path.join(TEMP_DIR, file.filename)
         file.save(file_path)
 
@@ -151,9 +116,12 @@ def process_files_api():
     else:
         return jsonify({"error": "No text extracted from the provided files."})
 
-@app.route('/summarize_youtube', methods=['POST'])
+@app.route('/summarize_youtube', methods=['POST', 'OPTIONS'])
 def summarize_youtube_api():
     """Summarizes text from a YouTube video by downloading, transcribing, and summarizing its audio."""
+    if request.method == "OPTIONS":  # Handle the CORS preflight request
+        return build_cors_preflight_response()
+
     data = request.get_json()
     url = data.get("url")
     
@@ -171,9 +139,12 @@ def summarize_youtube_api():
             
     return jsonify({"transcript": transcript})
 
-@app.route('/transcribe_audio', methods=['POST'])
+@app.route('/transcribe_audio', methods=['POST', 'OPTIONS'])
 def transcribe_audio_api():
     """Transcribes and summarizes uploaded audio files."""
+    if request.method == "OPTIONS":  # Handle the CORS preflight request
+        return build_cors_preflight_response()
+
     audio_file = request.files.get("audio_file")
     if not audio_file:
         return jsonify({"error": "No audio file provided"}), 400
@@ -191,37 +162,13 @@ def transcribe_audio_api():
             
     return jsonify({"transcript": transcript})
 
-@app.route('/summarize',methods=['POST'])
-def summarize_api():
-    """Summarize the text."""
-    text= request.json.get("content")
-    if not text:
-        return jsonify({"error": "No content provided"}), 400
-
-    try:
-        summarize = summarize_text(text)
-    except Exception as e:
-        return jsonify({"error": f"Failed to summarize: {str(e)}"}), 500
-
-    return jsonify({"summary":summarize})
-
-@app.route('/generate_quiz', methods=['POST'])
-def generate_quiz_api():
-    """Generates a quiz with meaningful questions from the provided text, with questions shuffled."""
-    data = request.get_json()
-    text = data.get("text")
-    
-    if not text:
-        return jsonify({"error": "No text provided"}), 400
-
-    try:
-        quiz = generate_quiz(text)
-        shuffle(quiz)  # Shuffle the order of the questions
-        limited_quiz = quiz[:10]  # Limit to 10 questions after shuffling
-        questions = [{"question": q, "answer": a} for q, a in limited_quiz]
-        return jsonify({"quiz": questions})
-    except Exception as e:
-        return jsonify({"error": f"Failed to generate quiz: {str(e)}"}), 500
+# Helper function for handling CORS
+def build_cors_preflight_response():
+    response = jsonify()
+    response.headers["Access-Control-Allow-Origin"] = "https://docu-insight-frontend.vercel.app"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True)
